@@ -400,19 +400,37 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - Removing cluster member", logger.Ctx{"member": name})
+
 	allRemotes := s.Remotes().RemotesByName()
 	remote, ok := allRemotes[name]
 	if !ok {
 		return response.SmartError(fmt.Errorf("No remote exists with the given name %q", name))
 	}
 
+	keys := []string{}
+	for k := range allRemotes {
+		keys = append(keys, k)
+	}
+	logger.Info(" mc - got all remotes", logger.Ctx{"remote_names": keys})
+
 	ctx, cancel := context.WithTimeout(r.Context(), time.Second*30)
-	defer cancel()
+	defer func() {
+		select {
+		case <-ctx.Done():
+			logger.Info(" mc - context already canceled", logger.Ctx{"err": ctx.Err(), "cause": context.Cause(ctx)})
+		default:
+			logger.Info(" mc - canceling context")
+		}
+		cancel()
+	}()
 
 	leader, err := s.Database().Leader(ctx)
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - got db leader")
 
 	leaderInfo, err := leader.Leader(ctx)
 	if err != nil {
@@ -421,18 +439,19 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 
 	// If we are not the leader, just forward the request.
 	if leaderInfo.Address != s.Address().URL.Host {
+		logger.Info(" mc - we are not the leader", logger.Ctx{"leader": leaderInfo.Address, "our_address": s.Address().URL.Host})
 		if allRemotes[name].Address.String() == s.Address().URL.Host {
 			// If the member being removed is ourselves and we are not the leader, then lock the
 			// clusterPutDisableMu before we forward the request to the leader, so that when the leader
 			// goes on to request clusterPutDisable back to ourselves it won't be actioned until we
 			// have returned this request back to the original client.
 			clusterDisableMu.Lock()
-			logger.Info("Acquired cluster self removal lock", logger.Ctx{"member": name})
+			logger.Info(" mc - Acquired cluster self removal lock", logger.Ctx{"member": name})
 
 			go func() {
 				<-r.Context().Done() // Wait until request is finished.
 
-				logger.Info("Releasing cluster self removal lock", logger.Ctx{"member": name})
+				logger.Info(" mc - Releasing cluster self removal lock", logger.Ctx{"member": name, "ctxErr": r.Context().Err()})
 				clusterDisableMu.Unlock()
 			}()
 		}
@@ -442,10 +461,14 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 			return response.SmartError(err)
 		}
 
+		logger.Info(" mc - got the leader, forwarding request")
+
 		err = client.DeleteClusterMember(r.Context(), name, force)
 		if err != nil {
 			return response.SmartError(err)
 		}
+
+		logger.Info(" mc - forwarded request to leader")
 
 		return response.ManualResponse(func(w http.ResponseWriter) error {
 			err := response.EmptySyncResponse.Render(w)
@@ -464,6 +487,8 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		})
 	}
 
+	logger.Info(" mc - we are the leader")
+
 	info, err := leader.Cluster(r.Context())
 	if err != nil {
 		return response.SmartError(err)
@@ -476,6 +501,8 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 			break
 		}
 	}
+
+	logger.Info(" mc - got index of remote", logger.Ctx{"index": index})
 
 	// If we can't find the node in dqlite, that means it failed to fully initialize. It still might have a record in our database so continue along anyway.
 	if index < 0 {
@@ -493,12 +520,20 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		return response.SmartError(err)
 	}
 
+	cmNames := []string{}
+	for _, cm := range clusterMembers {
+		cmNames = append(cmNames, cm.Name)
+	}
+	logger.Info(" mc - got cluster members", logger.Ctx{"members": cmNames, "count": len(clusterMembers)})
+
 	numPending := 0
 	for _, clusterMember := range clusterMembers {
 		if clusterMember.Role == cluster.Pending {
 			numPending++
 		}
 	}
+
+	logger.Info(" mc - got pending members", logger.Ctx{"num_pending": numPending})
 
 	if len(clusterMembers)-numPending < 1 {
 		return response.SmartError(fmt.Errorf("Cannot remove cluster members, there are no remaining non-pending members"))
@@ -518,6 +553,7 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 				}
 			}
 		}
+		logger.Info(" mc - remaining node is a voter")
 	}
 
 	// Refresh members information since we may have changed roles.
@@ -526,8 +562,11 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - got info of cluster members")
+
 	// If we are the leader and removing ourselves, reassign the leader role and perform the removal from there.
 	if allRemotes[name].Address.String() == leaderInfo.Address {
+		logger.Info(" mc - we are the leader and removing ourselves")
 		otherNodes := []uint64{}
 		for _, node := range info {
 			if node.Address != allRemotes[name].Address.String() && node.Role == dqliteClient.Voter {
@@ -551,14 +590,16 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		}
 
 		clusterDisableMu.Lock()
-		logger.Info("Acquired cluster self removal lock", logger.Ctx{"member": name})
+		logger.Info(" mc - Acquired cluster self removal lock", logger.Ctx{"member": name})
 
 		go func() {
 			<-r.Context().Done() // Wait until request is finished.
 
-			logger.Info("Releasing cluster self removal lock", logger.Ctx{"member": name})
+			logger.Info(" mc - Releasing cluster self removal lock", logger.Ctx{"member": name})
 			clusterDisableMu.Unlock()
 		}()
+
+		logger.Info(" mc - transfered the leader, forwarding request")
 
 		err = client.DeleteClusterMember(r.Context(), name, force)
 		if err != nil {
@@ -587,10 +628,17 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - got public key")
+
 	// Set the forwarded flag so that the the system to be removed knows the removal is in progress.
 	c, err := internalClient.New(remote.URL(), s.ServerCert(), publicKey, true)
 	if err != nil {
 		return response.SmartError(err)
+	}
+
+	logger.Info(" mc - got internal client", logger.Ctx{"name": name})
+	if deadline, ok := ctx.Deadline(); ok {
+		logger.Info("mc - context has deadline", logger.Ctx{"deadline": deadline, "until": time.Until(deadline)})
 	}
 
 	// Tell the cluster member to run its PreRemove hook and return.
@@ -599,13 +647,19 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - told to run pre remover hook")
+
 	// Remove the cluster member from the database.
 	err = s.Database().Transaction(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
+		logger.Info(" mc - deleting core cluster member", logger.Ctx{"addr": remote.Address.String()})
 		return cluster.DeleteCoreClusterMember(ctx, tx, remote.Address.String())
 	})
 	if err != nil {
+		logger.Info(" mc - got error deleting core cluster member", logger.Ctx{"err": err})
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - deleted core cluster member", logger.Ctx{"address": remote.Address.String()})
 
 	// Remove the node from dqlite, if it has a record there.
 	if index >= 0 {
@@ -615,43 +669,60 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 		}
 	}
 
+	logger.Info(" mc - removed from dqlite")
+
 	localClient, err := internalClient.New(s.FileSystem().ControlSocket(), nil, nil, false)
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - got new local client")
 
 	err = internalClient.DeleteTrustStoreEntry(ctx, localClient, name)
 	if err != nil && !force {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - deleted trust store entry", logger.Ctx{"name": name})
+
 	c, err = internalClient.New(remote.URL(), s.ServerCert(), publicKey, false)
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - got new internal client 2")
 
 	err = internalClient.ResetClusterMember(r.Context(), c, name, force)
 	if err != nil && !force {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - reset cluster member")
+
 	cluster, err := s.Cluster(false)
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - got cluster")
 
 	intState, err := internalState.ToInternal(s)
 	if err != nil {
 		return response.SmartError(err)
 	}
 
+	logger.Info(" mc - to internal")
+
 	// Run the PostRemove hook locally.
 	hookCtx, hookCancel := context.WithCancel(r.Context())
 	err = intState.Hooks.PostRemove(hookCtx, s, force)
+	logger.Info("mc - ran post remove hook, canceling hookContext", logger.Ctx{"err": err})
 	hookCancel()
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	logger.Info(" mc - running post remove hook on all members")
 
 	// Run the PostRemove hook on all other members.
 	remotes := s.Remotes()
@@ -667,6 +738,7 @@ func clusterMemberDelete(s state.State, r *http.Request) response.Response {
 			return fmt.Errorf("No remote found at address %q run the post-remove hook", c.URL().URL.Host)
 		}
 
+		logger.Info(" mc - running post remove hook for", logger.Ctx{"name": remote.Name})
 		return internalClient.RunPostRemoveHook(ctx, c.Client.UseTarget(remote.Name), internalTypes.HookRemoveMemberOptions{Force: force})
 	})
 	if err != nil {

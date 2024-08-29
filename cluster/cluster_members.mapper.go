@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/canonical/lxd/lxd/db/query"
+	"github.com/canonical/lxd/shared/logger"
 	"github.com/canonical/lxd/shared/api"
 )
 
@@ -304,23 +305,31 @@ func CreateCoreClusterMember(ctx context.Context, tx *sql.Tx, object CoreCluster
 	return id, nil
 }
 
+
 // DeleteCoreClusterMember deletes the core_cluster_member matching the given key parameters.
 // generator: core_cluster_member DeleteOne-by-Address
 func DeleteCoreClusterMember(ctx context.Context, tx *sql.Tx, address string) error {
+	logger.Info(" mc - deleting core cluster member from database")
 	stmt, err := Stmt(tx, coreClusterMemberDeleteByAddress)
 	if err != nil {
 		return fmt.Errorf("Failed to get \"coreClusterMemberDeleteByAddress\" prepared statement: %w", err)
 	}
+
+	logger.Info(" mc - got statement")
 
 	result, err := stmt.Exec(address)
 	if err != nil {
 		return fmt.Errorf("Delete \"core_cluster_members\": %w", err)
 	}
 
+	logger.Info(" mc - executed")
+
 	n, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("Fetch affected rows: %w", err)
 	}
+
+	logger.Info(" mc - rows affected", logger.Ctx{"n": n})
 
 	if n == 0 {
 		return api.StatusErrorf(http.StatusNotFound, "CoreClusterMember not found")

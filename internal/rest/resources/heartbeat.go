@@ -31,7 +31,7 @@ func heartbeatPost(s state.State, r *http.Request) response.Response {
 	var hbInfo internalTypes.HeartbeatInfo
 	err := json.NewDecoder(r.Body).Decode(&hbInfo)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to decode heartbeat request: %w", err))
 	}
 
 	if hbInfo.BeginRound {
@@ -43,7 +43,7 @@ func heartbeatPost(s state.State, r *http.Request) response.Response {
 
 	err = s.Database().IsOpen(r.Context())
 	if err != nil {
-		return response.SmartError(fmt.Errorf("Failed to respond to heartbeat, database is not yet open: %w", err))
+		return response.SmartError(fmt.Errorf("failed to respond to heartbeat, database is not yet open: %w", err))
 	}
 
 	clusterMemberList := []types.ClusterMember{}
@@ -51,16 +51,18 @@ func heartbeatPost(s state.State, r *http.Request) response.Response {
 		clusterMemberList = append(clusterMemberList, clusterMember)
 	}
 
+	logger.Info("HUE - heartbeat.go/heartbeatPost - clusterMemberList", logger.Ctx{"clusterMemberList": clusterMemberList})
+
 	err = s.Remotes().Replace(s.FileSystem().TrustDir, clusterMemberList...)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to replace remotes with heartbeat data: %w", err))
 	}
 
 	var internalSchemaVersion, externalSchemaVersion uint64
 	err = s.Database().Transaction(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		localClusterMember, err := cluster.GetCoreClusterMember(ctx, tx, s.Name())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get local cluster member: %w", err)
 		}
 
 		internalSchemaVersion = localClusterMember.SchemaInternal
@@ -69,18 +71,18 @@ func heartbeatPost(s state.State, r *http.Request) response.Response {
 		return nil
 	})
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed transaction: %w", err))
 	}
 
 	intState, err := internalState.ToInternal(s)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to convert state to internal state: %w", err))
 	}
 
 	if internalSchemaVersion != hbInfo.MaxSchemaInternal || externalSchemaVersion != hbInfo.MaxSchemaExternal {
 		err := intState.InternalDatabase.Update()
 		if err != nil {
-			return response.SmartError(err)
+			return response.SmartError(fmt.Errorf("failed to update internal database schema: %w", err))
 		}
 	}
 
@@ -101,24 +103,26 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 	err := s.Database().Transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		dbClusterMembers, err := cluster.GetCoreClusterMembers(ctx, tx)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get core cluster members [HUE 1]: %w", err)
 		}
 
 		clusterMembers = make([]types.ClusterMember, 0, len(dbClusterMembers))
 		for _, clusterMember := range dbClusterMembers {
 			apiClusterMember, err := clusterMember.ToAPI()
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to convert cluster member to API format: %w", err)
 			}
 
 			clusterMembers = append(clusterMembers, *apiClusterMember)
 		}
 
-		return err
+		return nil
 	})
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed transaction: %w", err))
 	}
+
+	logger.Info("HUE - heartbeat.go/beginHeartbeat - clusterMembers", logger.Ctx{"clusterMembers": clusterMembers})
 
 	// Get dqlite record of cluster members.
 	if len(clusterMembers) == 0 || len(hbReq.DqliteRoles) == 0 {
@@ -148,7 +152,7 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 
 	intState, err := internalState.ToInternal(s)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to convert state to internal state: %w", err))
 	}
 
 	leaderEntry := clusterMap[s.Address().URL.Host]
@@ -165,7 +169,7 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 	// Update local record of cluster members from the database, including any pending nodes for authentication.
 	err = s.Remotes().Replace(s.FileSystem().TrustDir, clusterMembers...)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to replace remotes: %w", err))
 	}
 
 	// Set the time of the last heartbeat to now.
@@ -184,9 +188,11 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 		}
 	}
 
+	logger.Info("HUE - heartbeat.go/beginHeartbeat - clusterMembers [2]", logger.Ctx{"clusterMembers": clusterMembers})
+
 	clusterClients, err := s.Cluster(false)
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to get cluster clients: %w", err))
 	}
 
 	// Use a lock to handle concurrent access to hbInfo.
@@ -225,14 +231,14 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 		return nil
 	})
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to query cluster clients: %w", err))
 	}
 
 	// Having sent a heartbeat to each valid cluster member, update the database record of members.
 	err = s.Database().Transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		dbClusterMembers, err := cluster.GetCoreClusterMembers(ctx, tx)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get core cluster members [HUE 2]: %w", err)
 		}
 
 		for _, clusterMember := range dbClusterMembers {
@@ -245,21 +251,24 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 			clusterMember.Role = cluster.Role(heartbeatInfo.Role)
 			err = cluster.UpdateCoreClusterMember(ctx, tx, clusterMember.Name, clusterMember)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to update core cluster member %q - %q: %w", clusterMember.Name, clusterMember.Address, err)
 			}
 		}
 
-		return cluster.DeleteExpiredCoreTokenRecords(ctx, tx)
+		if err := cluster.DeleteExpiredCoreTokenRecords(ctx, tx); err != nil {
+			return fmt.Errorf("failed to delete expired core token records: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed transaction: %w", err))
 	}
 
 	hookCtx, hookCancel := context.WithCancel(ctx)
 	err = intState.Hooks.OnHeartbeat(hookCtx, s)
 	hookCancel()
 	if err != nil {
-		return response.SmartError(err)
+		return response.SmartError(fmt.Errorf("failed to run heartbeat hooks: %w", err))
 	}
 
 	return response.EmptySyncResponse

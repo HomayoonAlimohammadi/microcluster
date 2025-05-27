@@ -245,10 +245,12 @@ func (c *Client) rawQuery(ctx context.Context, method string, url *api.URL, data
 		}
 	}
 
+	logger.Info("HUE - client.go/rawQuery - ready to c.Do(req)", logger.Ctx{"req": *req})
+
 	// Send the request
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to client.Do: %w", err)
 	}
 
 	return resp, nil
@@ -302,7 +304,7 @@ func (c *Client) mergeURL(endpointType types.EndpointPrefix, endpoint *api.URL) 
 func (c *Client) QueryStruct(ctx context.Context, method string, endpointType types.EndpointPrefix, endpoint *api.URL, data any, target any) error {
 	resp, err := c.QueryStructRaw(ctx, method, endpointType, endpoint, data)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query struct raw: %w", err)
 	}
 
 	response, err := response.ParseResponse(resp)
@@ -326,11 +328,12 @@ func (c *Client) QueryStruct(ctx context.Context, method string, endpointType ty
 func (c *Client) QueryStructRaw(ctx context.Context, method string, endpointType types.EndpointPrefix, endpoint *api.URL, data any) (*http.Response, error) {
 	// Merge the provided URL with the one we have for the client.
 	localURL := c.mergeURL(endpointType, endpoint)
+	logger.Info("HUE - client.go/QueryStructRaw - localURL", logger.Ctx{"localURL": localURL.String()})
 
 	// Send the actual query through.
 	resp, err := c.rawQuery(ctx, method, localURL, data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to raw query: %w", err)
 	}
 
 	// Log the data.

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	clusterRequest "github.com/canonical/lxd/lxd/cluster/request"
@@ -28,7 +29,11 @@ func (c *Client) Query(ctx context.Context, method string, prefix types.Endpoint
 	queryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	return c.QueryStruct(queryCtx, method, prefix, path, in, &out)
+	if err := c.QueryStruct(queryCtx, method, prefix, path, in, &out); err != nil {
+		return fmt.Errorf("failed ty query struct: %w", err)
+	}
+
+	return nil
 }
 
 // QueryRaw is a helper for initiating a request on any endpoints defined external to microcluster.

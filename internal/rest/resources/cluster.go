@@ -241,6 +241,8 @@ func clusterPost(s state.State, r *http.Request) response.Response {
 func clusterGet(s state.State, r *http.Request) response.Response {
 	status := s.Database().Status()
 
+	logger.Info("HUE - cluster.go/clusterGet - getting cluster members", logger.Ctx{"status": status, "remote-address": r.RemoteAddr})
+
 	// If the database is not in a ready or waiting state, we can't be sure it's available for use.
 	if status != types.DatabaseReady && status != types.DatabaseWaiting {
 		return response.SmartError(api.StatusErrorf(http.StatusServiceUnavailable, "%s", string(status)))
@@ -300,6 +302,8 @@ func clusterGet(s state.State, r *http.Request) response.Response {
 			if err != nil {
 				return response.SmartError(fmt.Errorf("Failed to create HTTPS client for cluster member with address %q: %w", addr.String(), err))
 			}
+
+			logger.Info("HUE - cluster.go/clusterGet - sending CheckReady to cluster member", logger.Ctx{"member-address": addr.String()})
 
 			err = d.CheckReady(r.Context())
 			if err == nil {

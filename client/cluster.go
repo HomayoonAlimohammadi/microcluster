@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"sync"
 )
@@ -20,7 +21,7 @@ func (c Cluster) Query(ctx context.Context, concurrent bool, query func(context.
 		for _, client := range c {
 			err := query(ctx, &client)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to query client %s: %w", client.URL().URL.Host, err)
 			}
 		}
 
@@ -37,7 +38,7 @@ func (c Cluster) Query(ctx context.Context, concurrent bool, query func(context.
 			err := query(ctx, &client)
 			if err != nil {
 				mut.Lock()
-				errors = append(errors, err)
+				errors = append(errors, fmt.Errorf("failed to query client %s: %w", client.URL().URL.Host, err))
 				mut.Unlock()
 				return
 			}

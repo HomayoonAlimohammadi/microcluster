@@ -8,6 +8,7 @@ import (
 	"github.com/canonical/lxd/shared"
 	"github.com/canonical/lxd/shared/api"
 
+	"github.com/canonical/lxd/shared/logger"
 	"github.com/canonical/microcluster/v2/client"
 	internalConfig "github.com/canonical/microcluster/v2/internal/config"
 	"github.com/canonical/microcluster/v2/internal/db"
@@ -166,15 +167,21 @@ func (s *InternalState) HasExtension(ext string) bool {
 // All requests made by the client will have the UserAgentNotifier header set
 // if isNotification is true.
 func (s *InternalState) Cluster(isNotification bool) (client.Cluster, error) {
+	logger.Info("HUE - state.go/Cluster - getting leader")
+
 	c, err := s.Leader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get leader client: %w", err)
 	}
+
+	logger.Info("HUE - state.go/Cluster - getting cluster members", logger.Ctx{"leader": c.URL().URL.Host})
 
 	clusterMembers, err := c.GetClusterMembers(s.Context)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get cluster members: %w", err)
 	}
+
+	logger.Info("HUE - state.go/Cluster - got cluster members [3]", logger.Ctx{"clusterMembers": clusterMembers})
 
 	clients := make(client.Cluster, 0, len(clusterMembers)-1)
 	for _, clusterMember := range clusterMembers {
@@ -184,13 +191,13 @@ func (s *InternalState) Cluster(isNotification bool) (client.Cluster, error) {
 
 		publicKey, err := s.ClusterCert().PublicKeyX509()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get cluster public key: %w", err)
 		}
 
 		url := api.NewURL().Scheme("https").Host(clusterMember.Address.String())
 		c, err := internalClient.New(*url, s.ServerCert(), publicKey, isNotification)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create client for %q: %w", clusterMember.Address.String(), err)
 		}
 
 		clients = append(clients, client.Client{Client: *c})

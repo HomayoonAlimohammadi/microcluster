@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/canonical/lxd/shared/api"
+	"github.com/canonical/lxd/shared/logger"
 
 	internalTypes "github.com/canonical/microcluster/v2/internal/rest/types"
 	"github.com/canonical/microcluster/v2/rest/types"
@@ -41,6 +42,8 @@ func ResetClusterMember(ctx context.Context, c *Client, name string, force bool)
 func (c *Client) GetClusterMembers(ctx context.Context) ([]types.ClusterMember, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
+	logger.Info("HUE - cluster.go/GetClusterMembers - querying cluster members")
 
 	clusterMembers := []types.ClusterMember{}
 	err := c.QueryStruct(queryCtx, "GET", internalTypes.PublicEndpoint, api.NewURL().Path("cluster"), nil, &clusterMembers)

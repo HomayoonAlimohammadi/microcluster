@@ -195,6 +195,8 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 		return response.SmartError(fmt.Errorf("failed to get cluster clients: %w", err))
 	}
 
+	logger.Info("HUE - heartbeat.go/beginHeartbeat - got clusterClients", logger.Ctx{"clusterClients": clusterClients})
+
 	// Use a lock to handle concurrent access to hbInfo.
 	mapLock := sync.RWMutex{}
 	// Send heartbeat to non-leader members, updating their local member cache and updating the node.
@@ -233,6 +235,8 @@ func beginHeartbeat(ctx context.Context, s state.State, hbReq internalTypes.Hear
 	if err != nil {
 		return response.SmartError(fmt.Errorf("failed to query cluster clients: %w", err))
 	}
+
+	logger.Info("HUE - heartbeat.go/beginHeartbeat - sent heartbeats to all cluster members", logger.Ctx{"hbInfo": hbInfo})
 
 	// Having sent a heartbeat to each valid cluster member, update the database record of members.
 	err = s.Database().Transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {

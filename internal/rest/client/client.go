@@ -199,6 +199,7 @@ func (c *Client) rawQuery(ctx context.Context, method string, url *api.URL, data
 	// Assign a context timeout if we don't already have one.
 	_, ok := ctx.Deadline()
 	if !ok {
+		logger.Info("HUE - client.go/rawQuery - setting context timeout", logger.Ctx{"method": method, "url": url.String()})
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		ctx = timeoutCtx
 		defer cancel()

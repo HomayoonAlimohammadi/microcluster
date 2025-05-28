@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math/rand"
@@ -296,21 +297,27 @@ func clusterGet(s state.State, r *http.Request) response.Response {
 			return response.SmartError(err)
 		}
 
+		var readyErr error
 		for i, clusterMember := range apiClusterMembers {
 			addr := api.NewURL().Scheme("https").Host(clusterMember.Address.String())
 			d, err := internalClient.New(*addr, s.ServerCert(), clusterCert, false)
 			if err != nil {
-				return response.SmartError(fmt.Errorf("Failed to create HTTPS client for cluster member with address %q: %w", addr.String(), err))
+				readyErr = errors.Join(readyErr, err)
 			}
 
 			logger.Info("HUE - cluster.go/clusterGet - sending CheckReady to cluster member", logger.Ctx{"member-address": addr.String()})
 
-			err = d.CheckReady(r.Context())
+			readyCtx, cancel := context.WithTimeout(r.Context(), time.Second*3)
+			defer cancel()
+			err = d.CheckReady(readyCtx)
 			if err == nil {
 				apiClusterMembers[i].Status = types.MemberOnline
 			} else {
 				logger.Warnf("Failed to get status of cluster member with address %q: %v", addr.String(), err)
 			}
+		}
+
+		if readyErr != nil {
 		}
 	}
 

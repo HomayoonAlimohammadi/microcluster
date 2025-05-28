@@ -176,7 +176,9 @@ func (s *InternalState) Cluster(isNotification bool) (client.Cluster, error) {
 
 	logger.Info("HUE - state.go/Cluster - getting cluster members", logger.Ctx{"leader": c.URL().URL.Host})
 
-	clusterMembers, err := c.GetClusterMembers(s.Context)
+	cmCtx, cancel := context.WithTimeout(s.Context, time.Second*10)
+	defer cancel()
+	clusterMembers, err := c.GetClusterMembers(cmCtx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster members: %w", err)
 	}
@@ -208,7 +210,7 @@ func (s *InternalState) Cluster(isNotification bool) (client.Cluster, error) {
 
 // Leader returns a client connected to the dqlite leader.
 func (s *InternalState) Leader() (*client.Client, error) {
-	ctx, cancel := context.WithTimeout(s.Context, time.Second*30)
+	ctx, cancel := context.WithTimeout(s.Context, time.Second*10)
 	defer cancel()
 
 	leaderClient, err := s.Database().Leader(ctx)

@@ -57,4 +57,4 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace github.com/canonical/lxd v0.0.0-20250113143058-52441d41dab7 => github.com/HomayoonAlimohammadi/lxd v0.0.0-20250527073459-f905a165c7b9
+replace github.com/canonical/lxd v0.0.0-20250113143058-52441d41dab7 => github.com/HomayoonAlimohammadi/lxd v0.0.0-20250529072719-8a3da0886757

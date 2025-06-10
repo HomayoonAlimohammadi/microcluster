@@ -39,7 +39,7 @@ func ResetClusterMember(ctx context.Context, c *Client, name string, force bool)
 
 // GetClusterMembers returns the database record of cluster members.
 func (c *Client) GetClusterMembers(ctx context.Context) ([]types.ClusterMember, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	clusterMembers := []types.ClusterMember{}

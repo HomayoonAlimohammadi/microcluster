@@ -64,7 +64,7 @@ type DqliteDB struct {
 
 const (
 	// DefaultHeartbeatInterval is the default interval used for heartbeats and dqlite role probes.
-	DefaultHeartbeatInterval time.Duration = time.Second * 10
+	DefaultHeartbeatInterval time.Duration = time.Second * 30
 )
 
 // Accept sends the outbound connection through the acceptCh channel to be received by dqlite.
